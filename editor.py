@@ -1505,6 +1505,7 @@ class Editor:
         pyxel.text(26, 8, f"Room:{self.r_room}", self.COLORS_LEN + 1)
         u, v = self.get_room_uv(self.r_room)
         pyxel.bltm(26, 16, 0, u * 8, v * 8, 232, 144)
+        pyxel.bltm(26, 16, 1, u * 8, v * 8, 232, 144, 0)
 
     #? ---------- MAIN ---------- ?#
     
