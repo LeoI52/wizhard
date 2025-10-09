@@ -1,7 +1,7 @@
 """
 @author : Léo Imbert & Yael Ennon
 @created : 11/09/25
-@updated : 07/10/25
+@updated : 08/10/25
 """
 
 #? -------------------- IMPORTATIONS -------------------- ?#
@@ -650,8 +650,9 @@ PALETTE = [0x000000, 0x180d2f, 0x353658, 0x83769C, 0x686b72, 0xc5cddb, 0xffffff,
 WIDTH, HEIGHT = 232, 144
 FPS = 60
 
-COLLISION_TILES = [1]
+COLLISION_TILES = [1, 2]
 COLLISION_TILES = [(x, y) for x in range(32) for y in COLLISION_TILES]
+COLLISION_TILES += [(0,15)]
 
 KILL_TILES = [(0,11),(1,11),(0,12),(1,12),(5,12),(6,12)]
 
@@ -660,19 +661,23 @@ ONE_WAY_TILES = [(0,9),(1,9),(2,9),(3,9)]
 POT_TILE = (0, 13)
 BROKEN_POT_TILE = (1, 13)
 
+LEVER_TILES = [(0,14),(1,14)]
+
+LEVERS_DICT = {
+    #? Tile Coord : Activated, Block tile, Hollow tile, Block coords
+    (17, 18):[False, (0,15), (1,15), [(13,16),(13,17),(13,18)]],
+    (161, 10):[False, (0,15), (1,15), [(149,12),(148,14)]]
+}
+
 ANIMATED_TILES_DICT = {
     #? Torch
-    (3,11):(4,11),
-    (4,11):(5,11),
-    (5,11):(3,11),
+    (3,11):(4,11),(4,11):(5,11),(5,11):(3,11),
     #? Spikes
-    (0,12):(1,12),
-    (1,12):(2,12),
-    (2,12):(3,12),
-    (3,12):(4,12),
-    (4,12):(5,12),
-    (5,12):(6,12),
-    (6,12):(0,12),
+    (0,12):(1,12),(1,12):(2,12),(2,12):(3,12),(3,12):(4,12),(4,12):(5,12),(5,12):(6,12),(6,12):(0,12),
+    #? Spider
+    (7,12):(8,12),(8,12):(9,12),(9,12):(7,12),
+    #? Candle
+    (7,13):(8,13),(8,13):(9,13),(9,13):(7,13),
 }
 
 #? -------------------- CLASSES -------------------- ?#
@@ -745,6 +750,11 @@ class Player:
         self.particle_manager = ParticleManager()
         self.tilemap = tilemap
         self.n_pots = 0
+        self.box = None
+
+        #? Checkpoint
+        self.checkpoint_x, self.checkpoint_y = x, y
+        self.temp_collected = []
 
         #? Velocity
         self.velocity_x = 0
@@ -769,6 +779,9 @@ class Player:
         self.on_ground = False
         self.dead = False
         self.free = False
+
+    def reset_temp_collected(self):
+        self.temp_collected = []
 
     def _update_velocity_x(self):
         if self.velocity_x != 0:
@@ -819,13 +832,13 @@ class Player:
                     self.y = next_y
 
     def _handle_free_movement(self):
-        if pyxel.btn(pyxel.KEY_LEFT):
+        if pyxel.btn(pyxel.KEY_A) or pyxel.btn(pyxel.KEY_Q):
             self.x -= 2
-        if pyxel.btn(pyxel.KEY_RIGHT):
+        if pyxel.btn(pyxel.KEY_D):
             self.x += 2
-        if pyxel.btn(pyxel.KEY_UP):
+        if pyxel.btn(pyxel.KEY_W) or pyxel.btn(pyxel.KEY_Z):
             self.y -= 2
-        if pyxel.btn(pyxel.KEY_DOWN):
+        if pyxel.btn(pyxel.KEY_S):
             self.y += 2
 
     def _die(self, pyxel_manager:PyxelManager):
@@ -875,12 +888,12 @@ class Player:
             self.velocity_x /= 1.1
 
     def _handle_jump(self):
-        if pyxel.btn(pyxel.KEY_SPACE) and ((self.on_ground or self.coyote_timer > 0) and not self.jumping):
+        if pyxel.btn(pyxel.KEY_SPACE) and ((self.on_ground or self.coyote_timer > 0) and not self.jumping) and not isinstance(self.box, Box):
             self.velocity_y = -self.jump_power
             self.jumping = True
 
     def _handle_crouching(self):
-        if pyxel.btnp(pyxel.KEY_S) and not self.tilemap.collision_rect_tiles(self.x, self.y + 1, self.w, self.h, COLLISION_TILES) and not self.jumping:
+        if pyxel.btnp(pyxel.KEY_S) and not self.tilemap.collision_rect_tiles(self.x, self.y + 1, self.w, self.h, COLLISION_TILES) and not self.jumping and not isinstance(self.box, Box):
             self.falling_timer = 8
 
         if pyxel.btn(pyxel.KEY_S):
@@ -892,14 +905,54 @@ class Player:
     def _handle_pots(self):
         tiles = self.tilemap.tiles_in_rect(self.x, self.y, self.w, self.h, [POT_TILE])
         if tiles and pyxel.btnp(pyxel.KEY_E):
-            pyxel.tilemaps[0].pset(tiles[0][0], tiles[0][1], BROKEN_POT_TILE)
+            pyxel.tilemaps[0].pset(*tiles[0], BROKEN_POT_TILE)
+            self.temp_collected.append(("Pot", tiles[0]))
             self.n_pots += 1
             for _ in range(10):
                 x, y = self.x + self.w // 2, self.y + self.h // 2
-                r = random.randint(1, 4)
-                c = [random.choice([24, 25, 26]) for _ in range(5)]
+                r = random.randint(1, 2)
+                c = [random.choice([2, 3, 5]) for _ in range(5)]
                 tx, ty = x + random.randint(-2, 2), y + random.randint(-2, 2)
-                self.particle_manager.add_particle(StarParticle(x, y, r, 5, c, 100, random.uniform(0.1, 0.5), (tx, ty), dither_duration=10, rotating=True))
+                self.particle_manager.add_particle(StarParticle(x, y, r, 5, c, 60, random.uniform(0.1, 0.5), (tx, ty), dither_duration=10, rotating=True))
+
+    def _handle_levers(self):
+        tiles = self.tilemap.tiles_in_rect(self.x, self.y, self.w, self.h, LEVER_TILES)
+        if tiles and pyxel.btnp(pyxel.KEY_E):
+            activated, door_tile, hollow_tile, door_tiles = LEVERS_DICT[tiles[0]]
+            u, v = pyxel.tilemaps[0].pget(*tiles[0])
+            activated = not activated
+
+            if activated:
+                pyxel.tilemaps[0].pset(*tiles[0], (u + 1, v))
+            else:
+                pyxel.tilemaps[0].pset(*tiles[0], (u - 1, v))
+
+            for tx, ty in door_tiles:
+                if pyxel.tilemaps[0].pget(tx, ty) == door_tile:
+                    pyxel.tilemaps[0].pset(tx, ty, hollow_tile)
+                else:
+                    pyxel.tilemaps[0].pset(tx, ty, door_tile)
+
+            LEVERS_DICT[tiles[0]][0] = activated
+
+    def _handle_box(self):
+        if self.box == 1:
+            self.box = None
+
+        if self.box:
+            self.box.x = self.x
+            self.box.y = self.y - 10
+            if pyxel.btnp(pyxel.KEY_E) and self.on_ground:
+                self.box.y = self.y
+                self.box = 1
+
+    def _revoke_temp_collected(self):
+        for t in self.temp_collected:
+            if t[0] == "Pot":
+                pyxel.tilemaps[0].pset(*t[1], POT_TILE)
+                self.n_pots -= 1
+
+        self.reset_temp_collected()
 
     def update(self, pyxel_manager:PyxelManager):
         self.particle_manager.update()
@@ -909,6 +962,9 @@ class Player:
             self.free = not self.free
 
         if self.dead:
+            self._revoke_temp_collected()
+            self.x, self.y = self.checkpoint_x, self.checkpoint_y
+            self.dead = False
             return
         
         if self.free:
@@ -935,6 +991,8 @@ class Player:
         self._handle_jump()
         self._handle_crouching()
         self._handle_pots()
+        self._handle_levers()
+        self._handle_box()
 
         self._update_velocity_y()
         self._update_velocity_x()
@@ -943,20 +1001,33 @@ class Player:
         self.current_animation.sprite.flip_horizontal = not self.facing_right
         self.current_animation.draw(self.x, self.y)
 
-        if self.tilemap.collision_rect_tiles(self.x, self.y, self.w, self.h, [POT_TILE]):
+        if self.tilemap.collision_rect_tiles(self.x, self.y, self.w, self.h, [POT_TILE] + LEVER_TILES):
             Text("E", self.x + self.w // 2, self.y - 11, 6, 1, anchor=ANCHOR_TOP, wavy=True, wave_speed=20, amplitude=1, outline=True, outline_color=3).draw()
 
         self.particle_manager.draw()
 
-class CheckpointManager:
+class Box:
 
-    def __init__(self, start_x:int, start_y:int):
-        self.checkpoint_x, self.checkpoint_y = start_x, start_y
+    def __init__(self, x:int, y:int):
+        self.x, self.y = x, y
+
+    def draw(self):
+        pyxel.blt(self.x, self.y, 0, 0, 16, 8, 8, 0)
+
+class BoxManager:
+
+    def __init__(self, boxes:list):
+        self.boxes = boxes
 
     def update(self, player:Player):
-        if player.dead:
-            player.x, player.y = self.checkpoint_x, self.checkpoint_y
-            player.dead = False
+        for box in self.boxes:
+            if collision_rect_rect(player.x, player.y, player.w, player.h, box.x, box.y, 8, 8) and pyxel.btnp(pyxel.KEY_E) and not player.box and not player.jumping and not player.falling_timer:
+                player.box = box
+                return
+
+    def draw(self):
+        for box in self.boxes:
+            box.draw()
 
 class AnimatedTilesManager:
 
@@ -983,7 +1054,7 @@ class Room:
         self.up, self.down = up, down
         self.on_enter, self.on_exit = on_enter, on_exit
 
-    def update(self, pyxel_manager:PyxelManager, player:Player, checkpoint_manager:CheckpointManager, rooms:dict):
+    def update(self, pyxel_manager:PyxelManager, player:Player, rooms:dict):
         if player.x + player.w <= self.u and self.left is not None:
             new_u = rooms.get(self.left).u
             new_v = rooms.get(self.left).v
@@ -991,8 +1062,9 @@ class Room:
                 if self.on_exit:    self.on_exit()
                 player.x = new_u + pyxel.width - 8
                 player.y = new_v + (player.y - self.v)
-                checkpoint_manager.checkpoint_x = player.x
-                checkpoint_manager.checkpoint_y = player.y
+                player.checkpoint_x = player.x
+                player.checkpoint_y = player.y
+                player.reset_temp_collected()
                 if rooms.get(self.left).on_enter:    rooms.get(self.left).on_enter()
             pyxel_manager.change_scene_transition(TransitionRectangle(0, 0.25, 0, LEFT, new_u, new_v, action))
             return self.left
@@ -1004,8 +1076,9 @@ class Room:
                 if self.on_exit:    self.on_exit()
                 player.x = new_u
                 player.y = new_v + (player.y - self.v)
-                checkpoint_manager.checkpoint_x = player.x
-                checkpoint_manager.checkpoint_y = player.y
+                player.checkpoint_x = player.x
+                player.checkpoint_y = player.y
+                player.reset_temp_collected()
                 if rooms.get(self.right).on_enter:    rooms.get(self.right).on_enter()
             pyxel_manager.change_scene_transition(TransitionRectangle(0, 0.25, 0, RIGHT, new_u, new_v, action))
             return self.right
@@ -1017,8 +1090,9 @@ class Room:
                 if self.on_exit:    self.on_exit()
                 player.x = new_u + (player.x - self.u)
                 player.y = new_v + pyxel.height - 16
-                checkpoint_manager.checkpoint_x = player.x
-                checkpoint_manager.checkpoint_y = player.y
+                player.checkpoint_x = player.x
+                player.checkpoint_y = player.y
+                player.reset_temp_collected()
                 if rooms.get(self.up).on_enter:    rooms.get(self.up).on_enter()
             pyxel_manager.change_scene_transition(TransitionRectangle(0, 0.25, 0, TOP, new_u, new_v, action))
             return self.up
@@ -1030,8 +1104,9 @@ class Room:
                 if self.on_exit:    self.on_exit()
                 player.x = new_u + (player.x - self.u)
                 player.y = new_v
-                checkpoint_manager.checkpoint_x = player.x
-                checkpoint_manager.checkpoint_y = player.y
+                player.checkpoint_x = player.x
+                player.checkpoint_y = player.y
+                player.reset_temp_collected()
                 if rooms.get(self.down).on_enter:    rooms.get(self.down).on_enter()
             pyxel_manager.change_scene_transition(TransitionRectangle(0, 0.25, 0, BOTTOM, new_u, new_v, action))
             return self.down
@@ -1043,8 +1118,8 @@ class RoomManager:
         self.current_room_id = start_room_id
         self.current_room = self.rooms.get(start_room_id)
 
-    def update(self, pyxel_manager:PyxelManager, player:Player, checkpoint_manager:CheckpointManager):
-        id = self.current_room.update(pyxel_manager, player, checkpoint_manager, self.rooms)
+    def update(self, pyxel_manager:PyxelManager, player:Player):
+        id = self.current_room.update(pyxel_manager, player, self.rooms)
         if id is not None:
             self.current_room_id = id
             self.current_room = self.rooms.get(id)
@@ -1080,18 +1155,18 @@ class Game:
         self.tilemap_0 = Tilemap(0, 0, 0, 256*8, 256*8, 0)
         self.tilemap_1 = Tilemap(1, 0, 0, 256*8, 256*8, 0)
         self.player = Player(15*8, 13*8, self.tilemap_0)
-        self.checkpoint_manager = CheckpointManager(15*8, 13*8)
         self.animated_tiles_manager = AnimatedTilesManager(ANIMATED_TILES_DICT)
         self.room_manager = RoomManager(ROOMS, 0)
+        self.box_manager = BoxManager([Box(22*8, 18*8), Box(20*8, 18*8)])
 
         #? Run
         self.pyxel_manager.run()
 
     def update_game(self):
         self.player.update(self.pyxel_manager)
-        self.checkpoint_manager.update(self.player)
+        self.box_manager.update(self.player)
         self.animated_tiles_manager.update(self.pyxel_manager.camera_x, self.pyxel_manager.camera_y)
-        self.room_manager.update(self.pyxel_manager, self.player, self.checkpoint_manager)
+        self.room_manager.update(self.pyxel_manager, self.player)
 
         if pyxel.btnp(pyxel.KEY_B):
             self.pyxel_manager.debug = not self.pyxel_manager.debug
@@ -1100,21 +1175,46 @@ class Game:
         pyxel.cls(0)
         
         self.tilemap_0.draw()
+        self.box_manager.draw()
         self.player.draw()
         self.tilemap_1.draw()
 
         px, py, pw, ph = self.player.x, self.player.y, self.player.w, self.player.h
 
+        #? Hide zone 0
+        if not collision_rect_rect(px, py, pw, ph, 13*8, 3*8, 16, 8):
+            pyxel.blt(13*8, 2*8, 1, 22*8, 8, 8, 8)
+            pyxel.blt(13*8, 3*8, 1, 7*8, 8, 8, 8)
+            pyxel.blt(13*8, 4*8, 1, 7*8, 8, 8, 8)
+            pyxel.rect(14*8, 2*8, 16, 24, 0)
+
+        #? Hide zone 2
         if not collision_rect_rect(px, py, pw, ph, 548, 141, 43, 15):
             pyxel.rect(548, 141, 43, 15, 0)
             pyxel.blt(73*8, 18*8, 1, 13*8, 8, 8, 8)
             pyxel.blt(73*8, 19*8, 1, 28*8, 8, 8, 8)
 
-        if (not collision_rect_rect(px, py, pw, ph, 356, 243, 80, 93) and 
-           not collision_rect_rect(px, py, pw, ph, 436, 268, 8, 46) and 
-           not collision_rect_rect(px, py, pw, ph, 324, 291, 32, 25)):
+        #? Hide zon 4
+        if not collision_rect_rect(px, py, pw, ph, 148*8, 10*8, 16, 15):
+            pyxel.rect(147*8, 10*8, 32, 8, 0)
+            pyxel.blt(148*8, 9*8, 1, 14*8, 8, 8, 8)
+            pyxel.blt(149*8, 9*8, 1, 29*8, 8, 8, 8)
+            pyxel.blt(148*8, 11*8, 1, 11*8, 8, 8, 8)
+            pyxel.blt(149*8, 11*8, 1, 11*8, 8, 8, 8)
+            pyxel.blt(150*8, 11*8, 1, 11*8, 8, 8, 8)
+
+        #? Hide zone 5
+        if not collision_rect_rect(px, py, pw, ph, 175*8, 12*8, 3*8, 3*8) and not collision_rect_rect(px, py, pw, ph, 171*8, 15*8, 9*8, 4*8):
+            pyxel.blt(177*8, 11*8, 1, 26*8, 8, 8, 8)
+            pyxel.blt(177*8, 12*8, 1, 13*8, 8, 8, 8)
+            pyxel.blt(177*8, 13*8, 1, 28*8, 8, 8, 8)
+            pyxel.rect(1364, 116, 80, 40, 0)
+            pyxel.rect(1396, 92, 20, 24, 0)
+
+        #? Hide zone 8
+        if not collision_rect_rect(px, py, pw, ph, 356, 243, 80, 93) and not collision_rect_rect(px, py, pw, ph, 436, 268, 8, 46) and not collision_rect_rect(px, py, pw, ph, 324, 291, 32, 25):
             pyxel.rect(356, 243, 80, 93, 0)
-            pyxel.rect(436, 268, 8, 46, 0)
+            pyxel.rect(436, 268, 10, 46, 0)
             pyxel.rect(324, 291, 32, 25, 0)
 
         pyxel.text(self.pyxel_manager.camera_x + 2, self.pyxel_manager.camera_y + 2, f"{self.player.n_pots}", 6)

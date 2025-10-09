@@ -461,25 +461,25 @@ class Editor:
 
     #? ---------- AUTOTILE METHODS ---------- ?#
 
-    def get_neighbors(self, tilemap_id:int, tile_y:int, x:int, y:int):
+    def get_neighbors(self, tilemap_id:int, tiles_y:list, x:int, y:int):
         n = 0
-        if y > 0 and pyxel.tilemaps[tilemap_id].pget(x, y - 1)[1] == tile_y:
+        if y > 0 and pyxel.tilemaps[tilemap_id].pget(x, y - 1)[1] in tiles_y:
             n += 1
-        if x < 255 and pyxel.tilemaps[tilemap_id].pget(x + 1, y)[1] == tile_y:
+        if x < 255 and pyxel.tilemaps[tilemap_id].pget(x + 1, y)[1] in tiles_y:
             n += 2
-        if y < 255 and pyxel.tilemaps[tilemap_id].pget(x, y + 1)[1] == tile_y:
+        if y < 255 and pyxel.tilemaps[tilemap_id].pget(x, y + 1)[1] in tiles_y:
             n += 4
-        if x > 0 and pyxel.tilemaps[tilemap_id].pget(x - 1, y)[1] == tile_y:
+        if x > 0 and pyxel.tilemaps[tilemap_id].pget(x - 1, y)[1] in tiles_y:
             n += 8
 
         if n == 15:
-            if y > 0 and x > 0 and pyxel.tilemaps[tilemap_id].pget(x - 1, y - 1)[1] == tile_y:
+            if y > 0 and x > 0 and pyxel.tilemaps[tilemap_id].pget(x - 1, y - 1)[1] in tiles_y:
                 n += 1
-            if y > 0 and x < 255 and pyxel.tilemaps[tilemap_id].pget(x + 1, y - 1)[1] == tile_y:
+            if y > 0 and x < 255 and pyxel.tilemaps[tilemap_id].pget(x + 1, y - 1)[1] in tiles_y:
                 n += 2
-            if y < 255 and x < 255 and pyxel.tilemaps[tilemap_id].pget(x + 1, y + 1)[1] == tile_y:
+            if y < 255 and x < 255 and pyxel.tilemaps[tilemap_id].pget(x + 1, y + 1)[1] in tiles_y:
                 n += 4
-            if y < 255 and x > 0 and pyxel.tilemaps[tilemap_id].pget(x - 1, y + 1)[1] == tile_y:
+            if y < 255 and x > 0 and pyxel.tilemaps[tilemap_id].pget(x - 1, y + 1)[1] in tiles_y:
                 n += 8
 
         return n
@@ -490,9 +490,10 @@ class Editor:
         for y in range(255):
             for x in range(255):
                 tile_x, tile_y  = pyxel.tilemaps[self.t_tilemap].pget(x, y)
+                tiles_y = eval(f"self.a_tiles_y_{self.t_image}")
 
-                if tile_y in eval(f"self.a_tiles_y_{self.t_image}"):
-                    neighbors = self.get_neighbors(self.t_tilemap, tile_y, x, y)
+                if tile_y in tiles_y:
+                    neighbors = self.get_neighbors(self.t_tilemap, tiles_y, x, y)
                     new_tiles[y][x] = (neighbors, tile_y)
                 else:
                     new_tiles[y][x] = (tile_x, tile_y)
